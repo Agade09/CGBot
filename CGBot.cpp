@@ -56,16 +56,17 @@ ostream& operator<<(ostream& os, const Message& stanza) {
 
 struct ChannelBot{
     string room_name,nickname;
-    MUCRoom* room;
+    JID roomJID;
+    MUCRoom* room=nullptr;
     unordered_map<string,unordered_map<string,int>> words;
     unordered_map<string,long> Total_Weights;
-    ChannelBot(const string &nick,const string &RName){
-        nickname=nick;
-        room_name=RName;
+    ChannelBot(const string &nick,const string &RName,const JID &RJID):nickname{nick},room_name{RName},roomJID{RJID}{
         LearnFromLogs();
     }
     ~ChannelBot(){
-        delete room;
+        if(room!=nullptr){
+            delete room;
+        }
     }
     /********************************************************/
     //The methods below handle the talking and learning of the bot
@@ -106,8 +107,8 @@ struct ChannelBot{
         }
         throw(0);
     }
-    inline void talk(){
-        room->send(Generate_Sentence());
+    inline string talk(){
+        return Generate_Sentence();
     }
     inline void Reinforce(const string &a,const string &b){//Reinforce the connection from a->b
         ++words[a][b];
@@ -177,10 +178,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
         client->registerConnectionListener(this);
         client->setPresence(Presence::Available,-1);
         for(ChannelBot &C:Channel){
-            stringstream ss_room_jid;
-            ss_room_jid << C.room_name << "@" << MUC << "/" << nickname;
-            JID roomJID(ss_room_jid.str());
-            C.room=new MUCRoom(client,roomJID,this,0);
+            C.room=new MUCRoom(client,JID(C.room_name+"@"+MUC+"/"+C.nickname),this,0);
         }
         client->connect(true);
     }
@@ -211,7 +209,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
             string room_name;
             ss >> room_name;
             if(room_name.find_first_not_of(' ')!=string::npos){
-                Channel.push_back(ChannelBot(nickname,room_name));
+                Channel.push_back(ChannelBot(nickname,room_name,JID(room_name+"@"+MUC)));
             }
         }
     }
@@ -223,11 +221,16 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
             if(C.room_name==room->name()){
                 //cout <<  msg.from().resource() << ": " << msg.body() << endl;
                 if(!msg.when()){//If the message is new, that is to say not from history
+                    if(msg.subtype()!=Message::Chat && msg.subtype()!=Message::Groupchat){
+                        cerr << msg << endl;
+                    }
                     C.Learn_From_Message(msg);
                     C.Log(msg);
-                }
-                if(msg.body().find(nickname)!=string::npos){
-                    C.talk();
+                    if(msg.body().find(nickname)!=string::npos){
+                        Message msg(Message::Groupchat,C.roomJID,C.talk());
+                        msg.setID(C.room_name+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
+                        client->send(msg);
+                    }
                 }
             }
         }
