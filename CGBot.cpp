@@ -54,7 +54,7 @@ ostream& operator<<(ostream& os, const Message& stanza) {
 
 struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
 	Client* client;
-   	MUCRoom *m_room;
+   	vector<MUCRoom*> m_room;
    	unordered_map<string,unordered_map<string,int>> words;
    	unordered_map<string,long> Total_Weights;
    	default_random_engine generator{static_cast<unsigned int>(system_clock::now().time_since_epoch().count())};
@@ -70,17 +70,21 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
 	    client->registerMessageHandler(this);
 	    client->registerConnectionListener(this);
 	    client->setPresence(Presence::Available,-1);
-	    stringstream ss_room_jid;
-	    ss_room_jid << room_name[0] << "@" << MUC << "/" << nickname;
-	    JID roomJID(ss_room_jid.str());
-	    m_room=new MUCRoom(client,roomJID,this,0);
+	    for(const string &name:room_name){
+	    	stringstream ss_room_jid;
+	    	ss_room_jid << name << "@" << MUC << "/" << nickname;
+		    JID roomJID(ss_room_jid.str());
+		    m_room.push_back(new MUCRoom(client,roomJID,this,0));
+	    }
 	    LearnFromLogs();
 	    cerr << Generate_Sentence() << endl;
 	    client->connect(true);
 	}
 	~Bot(){
 	    delete client;
-	    delete m_room;
+	    for(auto room:m_room){
+	    	delete room;
+	    }
 	}
 	/********************************************************/
 	//Reading parameter file
@@ -156,11 +160,12 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
 	inline string Filter_Message(const string &mess){
 		return Remove_All_Words(mess,nickname);
 	}
-	inline void Learn_From_Message(const string &mess){
+	inline void Learn_From_Message(string mess){
 		size_t delim=mess.find_first_not_of(' ');
 		if(delim==string::npos){//Message has no words
 			return;
 		}
+		mess=Filter_Message(mess);
 		Reinforce(Start_Str,Next_Word(mess,delim));
 		delim=mess.find_first_not_of(' ',mess.find_first_of(' ',delim));
 		while(delim!=string::npos){
@@ -185,7 +190,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
 		log_file << "(" << put_time(&ptm,"%T") << ") " << msg.from().resource() <<  " : " << msg.body() << endl;
 	}
     inline void LearnFromLogs(){
-    	ifstream logfile(m_room->name()+".log");
+    	ifstream logfile(m_room[0]->name()+".log");
     	if(!logfile){
     		cerr << "Couldn't open log file!" << endl;
     	}
@@ -206,12 +211,14 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
       		Log(msg,room->name());
       	}
       	if(msg.body().find(nickname)!=string::npos){
-      		m_room->send(Generate_Sentence());
+      		room->send(Generate_Sentence());
       	}
     }
     virtual void onConnect(){
         cerr << "Connected" << endl;
-        m_room->join();
+        for(auto room:m_room){
+        	room->join();
+        }
     }
 	virtual void handleMessage(const Message& stanza, MessageSession* session=0){
 	    cerr << "Received message: " << stanza << endl;
