@@ -21,6 +21,8 @@ constexpr char ConfigFileName[]{"config.txt"};
 constexpr char Start_Str[]{""},End_Str[]{"\0"};
 constexpr int N_Markov{3};//Markov chain length
 
+default_random_engine generator{static_cast<unsigned int>(system_clock::now().time_since_epoch().count())};
+
 ostream& operator<<(ostream& os, Message::MessageType type) {
     switch (type) {
         case Message::Chat:
@@ -52,66 +54,20 @@ ostream& operator<<(ostream& os, const Message& stanza) {
     return os;
 }
 
-struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
-	Client* client;
-   	vector<MUCRoom*> m_room;
-   	unordered_map<string,unordered_map<string,int>> words;
+struct ChannelBot{
+	string room_name,nickname;
+	MUCRoom* room;
+	unordered_map<string,unordered_map<string,int>> words;
    	unordered_map<string,long> Total_Weights;
-   	default_random_engine generator{static_cast<unsigned int>(system_clock::now().time_since_epoch().count())};
-   	int codingame_id,port;
-   	string password,host,MUC,nickname;
-   	vector<string> room_name;
-	Bot(){
-		Read_Config_File();
-		stringstream ss_client_jid;
-		ss_client_jid << codingame_id << "@" << host;
-	    JID jid(ss_client_jid.str());
-	    client=new Client(jid,password,port);
-	    client->registerMessageHandler(this);
-	    client->registerConnectionListener(this);
-	    client->setPresence(Presence::Available,-1);
-	    for(const string &name:room_name){
-	    	stringstream ss_room_jid;
-	    	ss_room_jid << name << "@" << MUC << "/" << nickname;
-		    JID roomJID(ss_room_jid.str());
-		    m_room.push_back(new MUCRoom(client,roomJID,this,0));
-	    }
-	    LearnFromLogs();
-	    cerr << Generate_Sentence() << endl;
-	    client->connect(true);
-	}
-	~Bot(){
-	    delete client;
-	    for(auto room:m_room){
-	    	delete room;
-	    }
-	}
-	/********************************************************/
-	//Reading parameter file
-	/********************************************************/
-	template <typename T> void GetParameterSkipLine(ifstream &config,T &param){
-		string line;
-		getline(config,line);
-		stringstream ss(line);
-		ss >> param;
-	}
-	void Read_Config_File(){
-		ifstream config(ConfigFileName);
-		GetParameterSkipLine(config,codingame_id);
-		GetParameterSkipLine(config,password);
-		GetParameterSkipLine(config,host);
-		GetParameterSkipLine(config,port);
-		GetParameterSkipLine(config,MUC);
-		GetParameterSkipLine(config,nickname);
-		string line;
-		getline(config,line);
-		stringstream ss(line);
-		while(ss){
-			room_name.push_back("");
-			ss >> room_name.back();
-		}
-	}
-	/********************************************************/
+   	ChannelBot(const string &nick,const string &RName){
+    	nickname=nick;
+    	room_name=RName;
+    	LearnFromLogs();
+    }
+    ~ChannelBot(){
+    	delete room;
+    }
+   	/********************************************************/
 	//The methods below handle the talking and learning of the bot
 	/********************************************************/
 	inline string Next_Word(const string &s,size_t delim){//Return next word starting from position delim included
@@ -150,6 +106,9 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
 		}
 		throw(0);
 	}
+	inline void talk(){
+		room->send(Generate_Sentence());
+	}
 	inline void Reinforce(const string &a,const string &b){//Reinforce the connection from a->b
 		++words[a][b];
 		++Total_Weights[a];
@@ -181,7 +140,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
 		mess.erase(0,mess.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
 		Learn_From_Message(mess);
 	}
-	inline void Log(const Message &msg,const string &room_name){
+	inline void Log(const Message &msg){
 		ofstream log_file(room_name+".log",ios::app);
 		time_t t = time(nullptr);
 		tm ptm = *localtime(&t);
@@ -190,9 +149,9 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
 		log_file << "(" << put_time(&ptm,"%T") << ") " << msg.from().resource() <<  " : " << msg.body() << endl;
 	}
     inline void LearnFromLogs(){
-    	ifstream logfile(m_room[0]->name()+".log");
+    	ifstream logfile(room_name+".log");
     	if(!logfile){
-    		cerr << "Couldn't open log file!" << endl;
+    		cerr << "Couldn't open log file: " << room_name+".log" << endl;
     	}
     	while(logfile){
     		string line,temp;
@@ -201,29 +160,90 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
     		Learn_From_Message(line);
     	}
     }
+};
+
+struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
+	Client* client;
+   	vector<ChannelBot> Channel;
+   	int codingame_id,port;
+   	string password,host,MUC,nickname;
+	Bot(){
+		Read_Config_File();
+		stringstream ss_client_jid;
+		ss_client_jid << codingame_id << "@" << host;
+	    JID jid(ss_client_jid.str());
+	    client=new Client(jid,password,port);
+	    client->registerMessageHandler(this);
+	    client->registerConnectionListener(this);
+	    client->setPresence(Presence::Available,-1);
+	    for(ChannelBot &C:Channel){
+	    	stringstream ss_room_jid;
+	    	ss_room_jid << C.room_name << "@" << MUC << "/" << nickname;
+		    JID roomJID(ss_room_jid.str());
+		    C.room=new MUCRoom(client,roomJID,this,0);
+	    }
+	    client->connect(true);
+	}
+	~Bot(){
+	    delete client;
+	}
+	/********************************************************/
+	//Reading parameter file
+	/********************************************************/
+	template <typename T> void GetParameterSkipLine(ifstream &config,T &param){
+		string line;
+		getline(config,line);
+		stringstream ss(line);
+		ss >> param;
+	}
+	void Read_Config_File(){
+		ifstream config(ConfigFileName);
+		GetParameterSkipLine(config,codingame_id);
+		GetParameterSkipLine(config,password);
+		GetParameterSkipLine(config,host);
+		GetParameterSkipLine(config,port);
+		GetParameterSkipLine(config,MUC);
+		GetParameterSkipLine(config,nickname);
+		string line;
+		getline(config,line);
+		stringstream ss(line);
+		while(ss){
+			string room_name;
+			ss >> room_name;
+			if(room_name.find_first_not_of(' ')!=string::npos){
+				Channel.push_back(ChannelBot(nickname,room_name));
+			}
+		}
+	}
     /****************************************************/
     //The methods below handle events in the XMPP protocol
     /****************************************************/
     virtual void handleMUCMessage( MUCRoom* room, const Message& msg, bool priv ){
-      	cout <<  msg.from().resource() << ": " << msg.body() << endl;
-      	if(!msg.when()){//If the message is new, that is to say not from history
-      		Learn_From_Message(msg);
-      		Log(msg,room->name());
-      	}
-      	if(msg.body().find(nickname)!=string::npos){
-      		room->send(Generate_Sentence());
-      	}
+    	for(ChannelBot &C:Channel){
+    		if(C.room_name==room->name()){
+    			//cout <<  msg.from().resource() << ": " << msg.body() << endl;
+		      	if(!msg.when()){//If the message is new, that is to say not from history
+		      		C.Learn_From_Message(msg);
+		      		C.Log(msg);
+		      	}
+		      	if(msg.body().find(nickname)!=string::npos){
+		      		C.talk();
+		      	}
+    		}
+    	}
     }
     virtual void onConnect(){
         cerr << "Connected" << endl;
-        for(auto room:m_room){
-        	room->join();
+        for(ChannelBot &C:Channel){
+        	C.room->join();
         }
     }
 	virtual void handleMessage(const Message& stanza, MessageSession* session=0){
-	    cerr << "Received message: " << stanza << endl;
-	    Message msg(Message::Chat,stanza.from(),Generate_Sentence());
-  		client->send(msg);
+	    cerr << "Received PM from " << stanza.from().full() << ": " << stanza.body() << endl;
+	    if(stanza.subtype()==Message::Chat){
+	    	Message msg(Message::Chat,stanza.from(),Channel[0].Generate_Sentence());
+  			client->send(msg);
+	    }
 	}
     virtual void onDisconnect(ConnectionError e) {
         cerr << "ConnListener::onDisconnect() " << e << endl;
