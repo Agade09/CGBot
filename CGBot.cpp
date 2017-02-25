@@ -19,7 +19,7 @@ using namespace std::chrono;
 
 constexpr char ConfigFileName[]{"config.txt"};
 constexpr char Start_Str[]{""},End_Str[]{"\0"};
-constexpr int N_Markov{3};//Markov chain length
+constexpr int N_Markov{2};//Markov chain length
 
 default_random_engine generator{static_cast<unsigned int>(system_clock::now().time_since_epoch().count())};
 
@@ -217,6 +217,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
         while(ss_talkers){
             string talker_name;
             ss_talkers >> talker_name;
+            Ignored_Talkers.push_back(nickname);
             if(talker_name.find_first_not_of(' ')!=string::npos){
                 Ignored_Talkers.push_back(talker_name);
             }
