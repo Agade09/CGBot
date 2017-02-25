@@ -115,7 +115,7 @@ struct ChannelBot{
         ++Total_Weights[a];
     }
     inline string Remove_All_Words(const string &s,const string &sub){//Remove all words containing the substring sub
-        return regex_replace(s,regex(sub),"");
+        return regex_replace(s,regex(sub,regex_constants::icase),"");
     }
     inline string Filter_Message(const string &mess){
         return Remove_All_Words(mess,nickname);
@@ -226,7 +226,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
                     }
                     C.Learn_From_Message(msg);
                     C.Log(msg);
-                    if(msg.body().find(nickname)!=string::npos){
+                    if(regex_search(msg.body(),regex(nickname,regex_constants::icase))){
                         Message msg(Message::Groupchat,C.roomJID,C.talk());
                         msg.setID(C.room_name+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
                         client->send(msg);
