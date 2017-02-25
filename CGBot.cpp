@@ -112,6 +112,7 @@ struct ChannelBot{
         return Generate_Sentence();
     }
     inline void Reinforce(const string &a,const string &b){//Reinforce the connection from a->b
+        cerr << "Reinforce " << a << " -> " << b << endl;
         ++words[a][b];
         ++Total_Weights[a];
     }
@@ -122,11 +123,11 @@ struct ChannelBot{
         return Remove_All_Words(mess,nickname);
     }
     inline void Learn_From_Message(string mess){
+        mess=Filter_Message(mess);
         size_t delim=mess.find_first_not_of(' ');
         if(delim==string::npos){//Message has no words
             return;
         }
-        mess=Filter_Message(mess);
         Reinforce(Start_Str,Next_Word(mess,delim));
         delim=mess.find_first_not_of(' ',mess.find_first_of(' ',delim));
         while(delim!=string::npos){
