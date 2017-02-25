@@ -235,24 +235,32 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
     //The methods below handle events in the XMPP protocol
     /****************************************************/
     virtual void handleMUCMessage( MUCRoom* room, const Message& msg, bool priv ){
-        for(ChannelBot &C:Channel){
-            if(C.room_name==room->name()){
-                //cout <<  msg.from().resource() << ": " << msg.body() << endl;
-                if(!msg.when()){//If the message is new, that is to say not from history
-                    if(msg.subtype()!=Message::Chat && msg.subtype()!=Message::Groupchat){
-                        cerr << msg << endl;
-                    }
-                    if(find(Ignored_Talkers.begin(),Ignored_Talkers.end(),msg.from().resource())==Ignored_Talkers.end()){
-                        C.Learn_From_Message(msg.body());
-                    }
-                    C.Log(msg);
-                    if(regex_search(msg.body(),regex(nickname,regex_constants::icase))){
-                        Message msg(Message::Groupchat,C.roomJID,C.talk());
-                        msg.setID(C.room_name+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
-                        client->send(msg);
+        if(!priv){
+            for(ChannelBot &C:Channel){
+                if(C.room_name==room->name()){
+                    //cout <<  msg.from().resource() << ": " << msg.body() << endl;
+                    if(!msg.when()){//If the message is new, that is to say not from history
+                        if(msg.subtype()!=Message::Chat && msg.subtype()!=Message::Groupchat){
+                            cerr << msg << endl;
+                        }
+                        if(find(Ignored_Talkers.begin(),Ignored_Talkers.end(),msg.from().resource())==Ignored_Talkers.end()){
+                            C.Learn_From_Message(msg.body());
+                        }
+                        C.Log(msg);
+                        if(regex_search(msg.body(),regex(nickname,regex_constants::icase))){
+                            Message reply(Message::Groupchat,C.roomJID,C.talk());
+                            reply.setID(C.room_name+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
+                            client->send(reply);
+                        }
                     }
                 }
             }
+        }
+        else{
+            cout << "Private MUC Message from " << msg.from().full() << ": " << msg.body() << endl;
+            Message reply(Message::Chat,msg.from(),Channel[0].talk());
+            reply.setID(msg.from().username()+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
+            client->send(reply);
         }
     }
     virtual void onConnect(){
@@ -261,11 +269,12 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
             C.room->join();
         }
     }
-    virtual void handleMessage(const Message& stanza, MessageSession* session=0){
-        cerr << "Received PM from " << stanza.from().full() << ": " << stanza.body() << endl;
-        if(stanza.subtype()==Message::Chat){
-            Message msg(Message::Chat,stanza.from(),Channel[0].Generate_Sentence());
-            client->send(msg);
+    virtual void handleMessage(const Message& msg, MessageSession* session=0){
+        cerr << "Received PM from " << msg.from().full() << ": " << msg.body() << endl;
+        if(msg.subtype()==Message::Chat){
+            Message reply(Message::Chat,msg.from().full(),Channel[0].talk());
+            reply.setID(msg.from().username()+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
+            client->send(reply);
         }
     }
     virtual void onDisconnect(ConnectionError e) {
