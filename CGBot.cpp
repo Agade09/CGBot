@@ -60,7 +60,8 @@ struct ChannelBot{
     MUCRoom* room=nullptr;
     unordered_map<string,unordered_map<string,int>> words;
     unordered_map<string,long> Total_Weights;
-    ChannelBot(const string &nick,const string &RName,const JID &RJID):nickname{nick},room_name{RName},roomJID{RJID}{
+    vector<string> Ignored_Talkers;
+    ChannelBot(const string &nick,const string &RName,const JID &RJID,const vector<string> &ITalkers):nickname{nick},room_name{RName},roomJID{RJID},Ignored_Talkers{ITalkers}{
         LearnFromLogs();
     }
     ~ChannelBot(){
@@ -155,10 +156,14 @@ struct ChannelBot{
             cerr << "Couldn't open log file: " << room_name+".log" << endl;
         }
         while(logfile){
-            string line,temp;
+            string line,username;
             getline(logfile,line);
-            line.erase(0,line.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
-            Learn_From_Message(line);
+            stringstream ss(line);
+            ss >> username >> username;
+            if(find(Ignored_Talkers.begin(),Ignored_Talkers.end(),username)==Ignored_Talkers.end()){
+                line.erase(0,line.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
+                Learn_From_Message(line);
+            }
         }
     }
 };
@@ -166,6 +171,7 @@ struct ChannelBot{
 struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
     Client* client;
     vector<ChannelBot> Channel;
+    vector<string> Ignored_Talkers;
     int codingame_id,port;
     string password,host,MUC,nickname;
     Bot(){
@@ -204,12 +210,21 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
         GetParameterSkipLine(config,nickname);
         string line;
         getline(config,line);
-        stringstream ss(line);
-        while(ss){
+        stringstream ss_talkers(line);
+        while(ss_talkers){
+            string talker_name;
+            ss_talkers >> talker_name;
+            if(talker_name.find_first_not_of(' ')!=string::npos){
+                Ignored_Talkers.push_back(talker_name);
+            }
+        }
+        getline(config,line);
+        stringstream ss_rooms(line);
+        while(ss_rooms){
             string room_name;
-            ss >> room_name;
+            ss_rooms >> room_name;
             if(room_name.find_first_not_of(' ')!=string::npos){
-                Channel.push_back(ChannelBot(nickname,room_name,JID(room_name+"@"+MUC)));
+                Channel.push_back(ChannelBot(nickname,room_name,JID(room_name+"@"+MUC),Ignored_Talkers));
             }
         }
     }
@@ -224,7 +239,9 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
                     if(msg.subtype()!=Message::Chat && msg.subtype()!=Message::Groupchat){
                         cerr << msg << endl;
                     }
-                    C.Learn_From_Message(msg);
+                    if(find(Ignored_Talkers.begin(),Ignored_Talkers.end(),msg.from().resource())==Ignored_Talkers.end()){
+                        C.Learn_From_Message(msg);
+                    }
                     C.Log(msg);
                     if(regex_search(msg.body(),regex(nickname,regex_constants::icase))){
                         Message msg(Message::Groupchat,C.roomJID,C.talk());
