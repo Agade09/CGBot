@@ -80,7 +80,7 @@ struct ChannelBot{
         delim=s.find_last_not_of(' ',delim-1);
         size_t begin=delim;
         for(int i=0;i<N_Markov;++i){
-            begin=s.find_last_of(' ',delim);
+            begin=begin==0?string::npos:s.find_last_of(' ',begin-1);
             if(begin==string::npos){//Not enough words, return everything
                 return s.substr(0,delim+1);
             }
@@ -112,7 +112,7 @@ struct ChannelBot{
         return Generate_Sentence();
     }
     inline void Reinforce(const string &a,const string &b){//Reinforce the connection from a->b
-        cerr << "Reinforce " << a << " -> " << b << endl;
+        //cerr << "Reinforce " << a << " -> " << b << endl;
         ++words[a][b];
         ++Total_Weights[a];
     }
@@ -128,11 +128,13 @@ struct ChannelBot{
         if(delim==string::npos){//Message has no words
             return;
         }
+        //cerr << "Original: " << mess << endl;
         Reinforce(Start_Str,Next_Word(mess,delim));
         delim=mess.find_first_not_of(' ',mess.find_first_of(' ',delim));
         while(delim!=string::npos){
             string prev{Last_Words(mess,delim)};
             string next{Next_Word(mess,delim)};
+            //cerr << "Delim: " << delim << " " << prev << " -> " << next << endl;
             Reinforce(prev,next);
             delim=mess.find_first_not_of(' ',mess.find_first_of(' ',delim));
         }
@@ -241,7 +243,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
                         cerr << msg << endl;
                     }
                     if(find(Ignored_Talkers.begin(),Ignored_Talkers.end(),msg.from().resource())==Ignored_Talkers.end()){
-                        C.Learn_From_Message(msg);
+                        C.Learn_From_Message(msg.body());
                     }
                     C.Log(msg);
                     if(regex_search(msg.body(),regex(nickname,regex_constants::icase))){
