@@ -142,7 +142,7 @@ struct ChannelBot{
         Learn_From_Message(mess);
     }
     inline void Log(const Message &msg){
-        ofstream log_file(room_name+".log",ios::app);
+        ofstream log_file("./Logs/"+room_name+".log",ios::app);
         time_t t = time(nullptr);
         tm ptm = *localtime(&t);
         string message_body{msg.body()};
@@ -150,7 +150,7 @@ struct ChannelBot{
         log_file << "(" << put_time(&ptm,"%T") << ") " << msg.from().resource() <<  " : " << msg.body() << endl;
     }
     inline void LearnFromLogs(){
-        ifstream logfile(room_name+".log");
+        ifstream logfile("./Logs/"+room_name+".log");
         if(!logfile){
             cerr << "Couldn't open log file: " << room_name+".log" << endl;
         }
