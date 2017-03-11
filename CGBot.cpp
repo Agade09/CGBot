@@ -19,7 +19,7 @@ using namespace std::chrono;
 
 constexpr char ConfigFileName[]{"config.txt"};
 constexpr char Start_Str[]{""},End_Str[]{"\0"};
-constexpr int N_Markov{2};//Markov chain length
+constexpr int N_Markov{5},Occurence_Limit{2};//Markov chain length
 
 default_random_engine generator{static_cast<unsigned int>(system_clock::now().time_since_epoch().count())};
 
@@ -63,6 +63,7 @@ struct ChannelBot{
     vector<string> Ignored_Talkers;
     ChannelBot(const string &nick,const string &RName,const JID &RJID,const vector<string> &ITalkers):nickname{nick},room_name{RName},roomJID{RJID},Ignored_Talkers{ITalkers}{
         LearnFromLogs();
+        //cerr << Generate_Sentence() << endl;
     }
     ~ChannelBot(){
         if(room!=nullptr){
@@ -76,10 +77,10 @@ struct ChannelBot{
         size_t next_word_end{s.find_first_of(' ',delim)};
         return s.substr(delim,next_word_end-delim);
     }
-    inline string Last_Words(const string &s,size_t delim){//Return last N_Markov words before position delim
+    inline string Last_Words(const string &s,const int N,size_t delim){//Return last N_Markov words before position delim
         delim=s.find_last_not_of(' ',delim-1);
         size_t begin=delim;
-        for(int i=0;i<N_Markov;++i){
+        for(int i=0;i<N;++i){
             begin=begin==0?string::npos:s.find_last_of(' ',begin-1);
             if(begin==string::npos){//Not enough words, return everything
                 return s.substr(0,delim+1);
@@ -99,14 +100,30 @@ struct ChannelBot{
     }
     inline string Generate_Sentence(){//Generate sentence with a markov chain model
         string sentence;
-        while(true){
-            string next{Next_SubMessage(Last_Words(sentence,-1))};
+        int words{0};
+        while(++words<25){
+            //Adaptative markov chain length
+            int N{0};
+            while(++N>0){
+                string prev{Last_Words(sentence,N,-1)};
+                //cerr << "Total weights of  " << prev << " : " <<  Total_Weights[prev] << endl;
+                if(Total_Weights[prev]<Occurence_Limit){
+                    --N;
+                    break;
+                }
+                else if(prev==sentence.substr(0,sentence.find_last_not_of(' ')+1)){
+                    break;
+                }
+            }
+            N=max(N,1);
+            string next{Next_SubMessage(Last_Words(sentence,N,-1))};
+            //cerr << N << " " << next << endl;
             if(next==End_Str){
-                return sentence;
+                break;
             }
             sentence+=next+" ";
         }
-        throw(0);
+        return sentence;
     }
     inline string talk(){
         return Generate_Sentence();
@@ -132,13 +149,29 @@ struct ChannelBot{
         Reinforce(Start_Str,Next_Word(mess,delim));
         delim=mess.find_first_not_of(' ',mess.find_first_of(' ',delim));
         while(delim!=string::npos){
-            string prev{Last_Words(mess,delim)};
             string next{Next_Word(mess,delim)};
-            //cerr << "Delim: " << delim << " " << prev << " -> " << next << endl;
-            Reinforce(prev,next);
+            string prev_max{Last_Words(mess,N_Markov,delim)};
+            int N{0};
+            while(++N>0){
+                string prev{Last_Words(mess,N,delim)};
+                //cerr << "Delim: " << delim << " " << prev << " -> " << next << endl;
+                Reinforce(prev,next);
+                if(prev==prev_max){
+                    break;
+                }
+            }
             delim=mess.find_first_not_of(' ',mess.find_first_of(' ',delim));
         }
-        Reinforce(Last_Words(mess,-1),End_Str);
+        string prev_max{Last_Words(mess,N_Markov,delim)};
+        int N{0};
+        while(++N>0){
+            string prev{Last_Words(mess,N,delim)};
+            //cerr << "Delim: " << delim << " " << prev << " -> " << next << endl;
+            Reinforce(prev,End_Str);
+            if(prev==prev_max){
+                break;
+            }
+        }
     }
     inline void Learn_From_Message(const Message &msg){
         string mess{msg.body()};
