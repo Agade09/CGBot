@@ -13,13 +13,15 @@
 #include <chrono>
 #include <sstream>
 #include <regex>
+#include <dirent.h>
 using namespace std;
 using namespace gloox;
 using namespace std::chrono;
 
 constexpr char ConfigFileName[]{"config.txt"};
 constexpr char Start_Str[]{""},End_Str[]{"\0"};
-constexpr int N_Markov{5},Occurence_Limit{2};//Markov chain length
+constexpr int N_Markov{5};//Markov chain length
+constexpr int Occurence_Limit{2};//Minimum occurences to accept a certain chain length when speaking
 
 default_random_engine generator{static_cast<unsigned int>(system_clock::now().time_since_epoch().count())};
 
@@ -57,13 +59,13 @@ ostream& operator<<(ostream& os, const Message& stanza) {
 struct ChannelBot{
     string room_name,nickname;
     JID roomJID;
+    string MUC;
     MUCRoom* room=nullptr;
     unordered_map<string,unordered_map<string,int>> words;
     unordered_map<string,long> Total_Weights;
     vector<string> Ignored_Talkers;
-    ChannelBot(const string &nick,const string &RName,const JID &RJID,const vector<string> &ITalkers):nickname{nick},room_name{RName},roomJID{RJID},Ignored_Talkers{ITalkers}{
+    ChannelBot(const string &nick,const string &RName,const string &MUC_Name,const JID &RJID,const vector<string> &ITalkers):nickname{nick},room_name{RName},MUC{MUC_Name},roomJID{RJID},Ignored_Talkers{ITalkers}{
         LearnFromLogs();
-        //cerr << Generate_Sentence() << endl;
     }
     ~ChannelBot(){
         if(room!=nullptr){
@@ -179,15 +181,17 @@ struct ChannelBot{
         Learn_From_Message(mess);
     }
     inline void Log(const Message &msg){
-        ofstream log_file("./Logs/"+room_name+".log",ios::app);
         time_t t = time(nullptr);
         tm ptm = *localtime(&t);
+        stringstream ss;
+        ss << "./Logs/"+room_name+"@"+MUC+"-" << put_time(&ptm,"%F") << ".log";
+        ofstream log_file(ss.str().c_str(),ios::app);
         string message_body{msg.body()};
         replace(message_body.begin(),message_body.end(),'\n',' ');
         log_file << "(" << put_time(&ptm,"%T") << ") " << msg.from().resource() <<  " : " << msg.body() << endl;
     }
-    inline void LearnFromLogs(){
-        ifstream logfile("./Logs/"+room_name+".log");
+    inline void LearnFromLogFile(const string &logfilename){
+        ifstream logfile(logfilename);
         if(!logfile){
             cerr << "Couldn't open log file: " << room_name+".log" << endl;
         }
@@ -200,6 +204,22 @@ struct ChannelBot{
                 line.erase(0,line.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
                 Learn_From_Message(line);
             }
+        }
+    }
+    inline void LearnFromLogs(){
+        DIR *dir;
+        struct dirent *ent;
+        if((dir=opendir("Logs"))!=NULL){
+            while((ent=readdir(dir))!=NULL){
+                string filename{ent->d_name};
+                if(filename.substr(0,filename.find_first_of('@'))==room_name){
+                    LearnFromLogFile("./Logs/"+filename);
+                }
+            }
+            closedir (dir);
+        }
+        else{
+            cerr << "Could not Logs directory" << endl;
         }
     }
 };
@@ -261,7 +281,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
             string room_name;
             ss_rooms >> room_name;
             if(room_name.find_first_not_of(' ')!=string::npos){
-                Channel.push_back(ChannelBot(nickname,room_name,JID(room_name+"@"+MUC),Ignored_Talkers));
+                Channel.push_back(ChannelBot(nickname,room_name,MUC,JID(room_name+"@"+MUC),Ignored_Talkers));
             }
         }
     }
