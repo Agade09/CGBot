@@ -1,6 +1,9 @@
+#include <gloox/gloox.h>
 #include <gloox/client.h>
 #include <gloox/message.h>
 #include <gloox/messagehandler.h>
+#include <gloox/messagesession.h>
+#include <gloox/messagesessionhandler.h>
 #include <gloox/connectionlistener.h>
 #include <gloox/mucroom.h>
 #include <gloox/mucroomhandler.h>
@@ -20,7 +23,7 @@ using namespace std::chrono;
 
 constexpr char ConfigFileName[]{"config.txt"};
 constexpr char Start_Str[]{""},End_Str[]{"\0"};
-constexpr int N_Markov{5};//Markov chain length
+constexpr int N_Markov{4};//Markov chain length
 constexpr int Occurence_Limit{2};//Minimum occurences to accept a certain chain length when speaking
 
 default_random_engine generator{static_cast<unsigned int>(system_clock::now().time_since_epoch().count())};
@@ -56,16 +59,28 @@ ostream& operator<<(ostream& os, const Message& stanza) {
     return os;
 }
 
+inline int Words(const string &s){
+    stringstream ss(s);
+    int words{0};
+    string word;
+    while(ss >> word){
+        ++words;
+    }
+    return words;
+}
+
 struct ChannelBot{
     string room_name,nickname;
     JID roomJID;
     string MUC;
-    MUCRoom* room=nullptr;
+    MUCRoom* room{nullptr};
     unordered_map<string,unordered_map<string,int>> words;
     unordered_map<string,long> Total_Weights;
     vector<string> Ignored_Talkers;
     ChannelBot(const string &nick,const string &RName,const string &MUC_Name,const JID &RJID,const vector<string> &ITalkers):nickname{nick},room_name{RName},MUC{MUC_Name},roomJID{RJID},Ignored_Talkers{ITalkers}{
+        time_point<system_clock> Start_Time{system_clock::now()};
         LearnFromLogs();
+        cerr << nickname << " took " << static_cast<duration<double>>(system_clock::now()-Start_Time).count() << "s to process the logs of room " << room_name << endl;
     }
     ~ChannelBot(){
         if(room!=nullptr){
@@ -100,9 +115,10 @@ struct ChannelBot{
             }
         }
     }
-    inline string Generate_Sentence(){//Generate sentence with a markov chain model
-        string sentence;
-        int words{0};
+    inline string Generate_Sentence(const string &start){//Generate sentence with a markov chain model
+        string sentence=start;
+        int words{Words(start)};
+        cerr << "Chain length: ";
         while(++words<25){
             //Adaptative markov chain length
             int N{0};
@@ -118,6 +134,7 @@ struct ChannelBot{
                 }
             }
             N=max(N,1);
+            cerr << N << " ";
             string next{Next_SubMessage(Last_Words(sentence,N,-1))};
             //cerr << N << " " << next << endl;
             if(next==End_Str){
@@ -125,10 +142,12 @@ struct ChannelBot{
             }
             sentence+=next+" ";
         }
+        cerr << endl;
+        cerr << "Generated: " << sentence << endl;
         return sentence;
     }
     inline string talk(){
-        return Generate_Sentence();
+        return Generate_Sentence("");
     }
     inline void Reinforce(const string &a,const string &b){//Reinforce the connection from a->b
         //cerr << "Reinforce " << a << " -> " << b << endl;
@@ -224,9 +243,10 @@ struct ChannelBot{
     }
 };
 
-struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
+struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler,MessageSessionHandler{
     Client* client;
     vector<ChannelBot> Channel;
+    vector<MessageSession*> MsgSession;
     vector<string> Ignored_Talkers;
     int codingame_id,port;
     string password,host,MUC,nickname;
@@ -236,7 +256,8 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
         ss_client_jid << codingame_id << "@" << host;
         JID jid(ss_client_jid.str());
         client=new Client(jid,password,port);
-        client->registerMessageHandler(this);
+        //client->registerMessageHandler(this);
+        client->registerMessageSessionHandler(this,0);
         client->registerConnectionListener(this);
         client->setPresence(Presence::Available,-1);
         for(ChannelBot &C:Channel){
@@ -246,6 +267,9 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
     }
     ~Bot(){
         delete client;
+        for(auto msg_sess:MsgSession){
+            delete msg_sess;
+        }
     }
     /********************************************************/
     //Reading parameter file
@@ -331,10 +355,15 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler{
             client->send(reply);
         }
     }
+    virtual void handleMessageSession(MessageSession* session){
+        cerr << "New message session" << endl;
+        MsgSession.push_back(session);
+        session->registerMessageHandler(this);
+    }
     virtual void onDisconnect(ConnectionError e) {
         cerr << "ConnListener::onDisconnect() " << e << endl;
     }
-    virtual bool onTLSConnect(const CertInfo& info) {
+    virtual bool onTLSConnect(const CertInfo& info){
         cerr << "ConnListener::onTLSConnect()" << endl;
         return true;
     }

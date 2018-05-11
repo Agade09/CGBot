@@ -1,5 +1,5 @@
-Logs
-*.log
-config.txt
-ToDo.txt
-CGBot
+*
+!CGBot.cpp
+!.gitignore
+!README.md
+!Makefile
