@@ -9,6 +9,8 @@
 #include <gloox/mucroomhandler.h>
 #include <iostream>
 #include <unordered_map>
+#include <map>
+#include <set>
 #include <fstream>
 #include <iomanip>
 #include <random>
@@ -74,10 +76,10 @@ struct ChannelBot{
     JID roomJID;
     string MUC;
     MUCRoom* room{nullptr};
-    unordered_map<string,unordered_map<string,int>> words;
+    unordered_map<string,map<string,int>> words;
     unordered_map<string,long> Total_Weights;
-    vector<string> Ignored_Talkers;
-    ChannelBot(const string &nick,const string &RName,const string &MUC_Name,const JID &RJID,const vector<string> &ITalkers):nickname{nick},room_name{RName},MUC{MUC_Name},roomJID{RJID},Ignored_Talkers{ITalkers}{
+    set<string> Ignored_Talkers;
+    ChannelBot(const string &nick,const string &RName,const string &MUC_Name,const JID &RJID,const set<string> &ITalkers):nickname{nick},room_name{RName},MUC{MUC_Name},roomJID{RJID},Ignored_Talkers{ITalkers}{
         time_point<system_clock> Start_Time{system_clock::now()};
         LearnFromLogs();
         cerr << nickname << " took " << static_cast<duration<double>>(system_clock::now()-Start_Time).count() << "s to process the logs of room " << room_name << endl;
@@ -90,11 +92,11 @@ struct ChannelBot{
     /********************************************************/
     //The methods below handle the talking and learning of the bot
     /********************************************************/
-    inline string Next_Word(const string &s,size_t delim){//Return next word starting from position delim included
+    inline string Next_Word(const string &s,size_t delim)const{//Return next word starting from position delim included
         size_t next_word_end{s.find_first_of(' ',delim)};
         return s.substr(delim,next_word_end-delim);
     }
-    inline string Last_Words(const string &s,const int N,size_t delim){//Return last N_Markov words before position delim
+    inline string Last_Words(const string &s,const int N,size_t delim)const{//Return last N_Markov words before position delim
         delim=s.find_last_not_of(' ',delim-1);
         size_t begin=delim;
         for(int i=0;i<N;++i){
@@ -154,10 +156,10 @@ struct ChannelBot{
         ++words[a][b];
         ++Total_Weights[a];
     }
-    inline string Remove_All_Words(const string &s,const string &sub){//Remove all words containing the substring sub
+    inline string Remove_All_Words(const string &s,const string &sub)const{//Remove all words containing the substring sub
         return regex_replace(s,regex(sub,regex_constants::icase),"");
     }
-    inline string Filter_Message(const string &mess){
+    inline string Filter_Message(const string &mess)const{
         return Remove_All_Words(mess,nickname);
     }
     inline void Learn_From_Message(string mess){
@@ -199,7 +201,7 @@ struct ChannelBot{
         mess.erase(0,mess.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
         Learn_From_Message(mess);
     }
-    inline void Log(const Message &msg){
+    inline void Log(const Message &msg)const{
         time_t t = time(nullptr);
         tm ptm = *localtime(&t);
         stringstream ss;
@@ -219,7 +221,7 @@ struct ChannelBot{
             getline(logfile,line);
             stringstream ss(line);
             ss >> username >> username;
-            if(find(Ignored_Talkers.begin(),Ignored_Talkers.end(),username)==Ignored_Talkers.end()){
+            if(Ignored_Talkers.find(username)==Ignored_Talkers.end()){
                 line.erase(0,line.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
                 Learn_From_Message(line);
             }
@@ -247,7 +249,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler,MessageSess
     Client* client;
     vector<ChannelBot> Channel;
     vector<MessageSession*> MsgSession;
-    vector<string> Ignored_Talkers;
+    set<string> Ignored_Talkers;
     int codingame_id,port;
     string password,host,MUC,nickname;
     Bot(){
@@ -294,9 +296,9 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler,MessageSess
         while(ss_talkers){
             string talker_name;
             ss_talkers >> talker_name;
-            Ignored_Talkers.push_back(nickname);
+            Ignored_Talkers.insert(nickname);
             if(talker_name.find_first_not_of(' ')!=string::npos){
-                Ignored_Talkers.push_back(talker_name);
+                Ignored_Talkers.insert(talker_name);
             }
         }
         getline(config,line);
@@ -321,7 +323,7 @@ struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler,MessageSess
                         if(msg.subtype()!=Message::Chat && msg.subtype()!=Message::Groupchat){
                             cerr << msg << endl;
                         }
-                        if(find(Ignored_Talkers.begin(),Ignored_Talkers.end(),msg.from().resource())==Ignored_Talkers.end()){
+                        if(Ignored_Talkers.find(msg.from().resource())==Ignored_Talkers.end()){
                             C.Learn_From_Message(msg.body());
                         }
                         C.Log(msg);
