@@ -71,13 +71,17 @@ inline int Words(const string &s){
     return words;
 }
 
+struct next_words{
+    map<string,int> next;
+    long total_weights;
+};
+
 struct ChannelBot{
     string room_name,nickname;
     JID roomJID;
     string MUC;
     MUCRoom* room{nullptr};
-    unordered_map<string,map<string,int>> words;
-    unordered_map<string,long> Total_Weights;
+    unordered_map<string,next_words> words;
     set<string> Ignored_Talkers;
     ChannelBot(const string &nick,const string &RName,const string &MUC_Name,const JID &RJID,const set<string> &ITalkers):nickname{nick},room_name{RName},MUC{MUC_Name},roomJID{RJID},Ignored_Talkers{ITalkers}{
         time_point<system_clock> Start_Time{system_clock::now()};
@@ -108,9 +112,9 @@ struct ChannelBot{
         return s.substr(begin+1,delim-begin);
     }
     inline string Next_SubMessage(const string &prev){//Generate next part of message from the N_Markov words before it
-        uniform_int_distribution<long> Word_Distrib(0,Total_Weights[prev]);
+        uniform_int_distribution<long> Word_Distrib(0,words[prev].total_weights);
         long word{Word_Distrib(generator)};
-        for(auto W:words[prev]){
+        for(auto W:words[prev].next){
             word-=W.second;
             if(word<=0){
                 return W.first;
@@ -119,15 +123,15 @@ struct ChannelBot{
     }
     inline string Generate_Sentence(const string &start){//Generate sentence with a markov chain model
         string sentence=start;
-        int words{Words(start)};
+        int n_words{Words(start)};
         cerr << "Chain length: ";
-        while(++words<25){
+        while(++n_words<25){
             //Adaptative markov chain length
             int N{0};
             while(++N>0){
                 string prev{Last_Words(sentence,N,-1)};
-                //cerr << "Total weights of  " << prev << " : " <<  Total_Weights[prev] << endl;
-                if(Total_Weights[prev]<Occurence_Limit){
+                //cerr << "Total weights of  " << prev << " : " <<  words[prev].total_weights << endl;
+                if(words[prev].total_weights<Occurence_Limit){
                     --N;
                     break;
                 }
@@ -153,8 +157,8 @@ struct ChannelBot{
     }
     inline void Reinforce(const string &a,const string &b){//Reinforce the connection from a->b
         //cerr << "Reinforce " << a << " -> " << b << endl;
-        ++words[a][b];
-        ++Total_Weights[a];
+        ++words[a].next[b];
+        ++words[a].total_weights;
     }
     inline string Remove_All_Words(const string &s,const string &sub)const{//Remove all words containing the substring sub
         return regex_replace(s,regex(sub,regex_constants::icase),"");
