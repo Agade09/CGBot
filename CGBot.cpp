@@ -1,12 +1,3 @@
-#include <gloox/gloox.h>
-#include <gloox/client.h>
-#include <gloox/message.h>
-#include <gloox/messagehandler.h>
-#include <gloox/messagesession.h>
-#include <gloox/messagesessionhandler.h>
-#include <gloox/connectionlistener.h>
-#include <gloox/mucroom.h>
-#include <gloox/mucroomhandler.h>
 #include <iostream>
 #include <unordered_map>
 #include <map>
@@ -20,46 +11,13 @@
 #include <regex>
 #include <dirent.h>
 using namespace std;
-using namespace gloox;
 using namespace std::chrono;
 
-constexpr char ConfigFileName[]{"config.txt"};
 constexpr char Start_Str[]{""},End_Str[]{"\0"};
 constexpr int N_Markov{4};//Markov chain length
 constexpr int Occurence_Limit{2};//Minimum occurences to accept a certain chain length when speaking
 
 default_random_engine generator{static_cast<unsigned int>(system_clock::now().time_since_epoch().count())};
-
-ostream& operator<<(ostream& os, Message::MessageType type) {
-    switch (type) {
-        case Message::Chat:
-            os << "Chat";
-            break;
-        case Message::Error:
-            os << "Error";
-            break;
-        case Message::Groupchat:
-            os << "Groupchat";
-            break;
-        case Message::Headline:
-            os << "Headline";
-            break;
-        case Message::Normal:
-            os << "Normal";
-            break;
-        case Message::Invalid:
-            os << "Invalid";
-            break;
-        default:
-            os << "unknown type";
-            break;
-    }
-}
-
-ostream& operator<<(ostream& os, const Message& stanza) {
-    os << "type:'" << stanza.subtype() <<  "' from:'" << stanza.from().full() << "' body:'" << stanza.body() << "'";
-    return os;
-}
 
 inline int Words(const string &s){
     stringstream ss(s);
@@ -78,20 +36,12 @@ struct next_words{
 
 struct ChannelBot{
     string room_name,nickname;
-    JID roomJID;
-    string MUC;
-    MUCRoom* room{nullptr};
     unordered_map<string,next_words> words;
     set<string> Ignored_Talkers;
-    ChannelBot(const string &nick,const string &RName,const string &MUC_Name,const JID &RJID,const set<string> &ITalkers):nickname{nick},room_name{RName},MUC{MUC_Name},roomJID{RJID},Ignored_Talkers{ITalkers}{
+    ChannelBot(const string &nick,const string &RName,const set<string> &ITalkers):nickname{nick},room_name{RName},Ignored_Talkers{ITalkers}{
         time_point<system_clock> Start_Time{system_clock::now()};
         LearnFromLogs();
         cerr << nickname << " took " << static_cast<duration<double>>(system_clock::now()-Start_Time).count() << "s to process the logs of room " << room_name << endl;
-    }
-    ~ChannelBot(){
-        if(room!=nullptr){
-            delete room;
-        }
     }
     /********************************************************/
     //The methods below handle the talking and learning of the bot
@@ -167,6 +117,7 @@ struct ChannelBot{
         return Remove_All_Words(mess,nickname);
     }
     inline void Learn_From_Message(string mess){
+        mess.erase(0,mess.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
         mess=Filter_Message(mess);
         size_t delim=mess.find_first_not_of(' ');
         if(delim==string::npos){//Message has no words
@@ -200,21 +151,6 @@ struct ChannelBot{
             }
         }
     }
-    inline void Learn_From_Message(const Message &msg){
-        string mess{msg.body()};
-        mess.erase(0,mess.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
-        Learn_From_Message(mess);
-    }
-    inline void Log(const Message &msg)const{
-        time_t t = time(nullptr);
-        tm ptm = *localtime(&t);
-        stringstream ss;
-        ss << "./Logs/"+room_name+"@"+MUC+"-" << put_time(&ptm,"%F") << ".log";
-        ofstream log_file(ss.str().c_str(),ios::app);
-        string message_body{msg.body()};
-        replace(message_body.begin(),message_body.end(),'\n',' ');
-        log_file << "(" << put_time(&ptm,"%T") << ") " << msg.from().resource() <<  " : " << msg.body() << endl;
-    }
     inline void LearnFromLogFile(const string &logfilename){
         ifstream logfile(logfilename);
         if(!logfile){
@@ -226,7 +162,6 @@ struct ChannelBot{
             stringstream ss(line);
             ss >> username >> username;
             if(Ignored_Talkers.find(username)==Ignored_Talkers.end()){
-                line.erase(0,line.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
                 Learn_From_Message(line);
             }
         }
@@ -249,172 +184,28 @@ struct ChannelBot{
     }
 };
 
-struct Bot : public MessageHandler,ConnectionListener,MUCRoomHandler,MessageSessionHandler{
-    Client* client;
-    vector<ChannelBot> Channel;
-    vector<MessageSession*> MsgSession;
+int main(int argc,char **argv){
+    if(argc<3){
+        cerr << "Program takes at least two arguments: the name of the chat room and the name of the bot" << endl;
+    }
+    string chat_room=argv[1],nickname=argv[2];
     set<string> Ignored_Talkers;
-    int codingame_id,port;
-    string password,host,MUC,nickname;
-    Bot(){
-        Read_Config_File();
-        stringstream ss_client_jid;
-        ss_client_jid << codingame_id << "@" << host;
-        JID jid(ss_client_jid.str());
-        client=new Client(jid,password,port);
-        //client->registerMessageHandler(this);
-        client->registerMessageSessionHandler(this,0);
-        client->registerConnectionListener(this);
-        client->setPresence(Presence::Available,-1);
-        for(ChannelBot &C:Channel){
-            C.room=new MUCRoom(client,JID(C.room_name+"@"+MUC+"/"+C.nickname),this,0);
-        }
-        client->connect(true);
+    Ignored_Talkers.insert(nickname);
+    for(int i=3;i<argc;++i){
+        Ignored_Talkers.insert(string(argv[i]));
     }
-    ~Bot(){
-        delete client;
-        for(auto msg_sess:MsgSession){
-            delete msg_sess;
-        }
-    }
-    /********************************************************/
-    //Reading parameter file
-    /********************************************************/
-    template <typename T> void GetParameterSkipLine(ifstream &config,T &param){
-        string line;
-        getline(config,line);
-        stringstream ss(line);
-        ss >> param;
-    }
-    void Read_Config_File(){
-        ifstream config(ConfigFileName);
-        GetParameterSkipLine(config,codingame_id);
-        GetParameterSkipLine(config,password);
-        GetParameterSkipLine(config,host);
-        GetParameterSkipLine(config,port);
-        GetParameterSkipLine(config,MUC);
-        GetParameterSkipLine(config,nickname);
-        string line;
-        getline(config,line);
-        stringstream ss_talkers(line);
-        while(ss_talkers){
-            string talker_name;
-            ss_talkers >> talker_name;
-            Ignored_Talkers.insert(nickname);
-            if(talker_name.find_first_not_of(' ')!=string::npos){
-                Ignored_Talkers.insert(talker_name);
-            }
-        }
-        getline(config,line);
-        stringstream ss_rooms(line);
-        while(ss_rooms){
-            string room_name;
-            ss_rooms >> room_name;
-            if(room_name.find_first_not_of(' ')!=string::npos){
-                Channel.push_back(ChannelBot(nickname,room_name,MUC,JID(room_name+"@"+MUC),Ignored_Talkers));
+    ChannelBot b(nickname,chat_room,Ignored_Talkers);
+    while(true){
+        string message_body_raw;
+        stringstream ss(message_body_raw);
+        string username;
+        ss >> username >> username;
+        getline(cin,message_body_raw);
+        if(Ignored_Talkers.find(username)==Ignored_Talkers.end()){
+            b.Learn_From_Message(message_body_raw);
+            if(regex_search(next(find(message_body_raw.begin(),message_body_raw.end(),':'),1),message_body_raw.end(),regex(nickname,regex_constants::icase))){
+                cout << b.talk() << endl;
             }
         }
     }
-    /****************************************************/
-    //The methods below handle events in the XMPP protocol
-    /****************************************************/
-    virtual void handleMUCMessage( MUCRoom* room, const Message& msg, bool priv ){
-        if(!priv){
-            for(ChannelBot &C:Channel){
-                if(C.room_name==room->name()){
-                    //cout <<  msg.from().resource() << ": " << msg.body() << endl;
-                    if(!msg.when()){//If the message is new, that is to say not from history
-                        if(msg.subtype()!=Message::Chat && msg.subtype()!=Message::Groupchat){
-                            cerr << msg << endl;
-                        }
-                        if(Ignored_Talkers.find(msg.from().resource())==Ignored_Talkers.end()){
-                            C.Learn_From_Message(msg.body());
-                        }
-                        C.Log(msg);
-                        if(regex_search(msg.body(),regex(nickname,regex_constants::icase))){
-                            Message reply(Message::Groupchat,C.roomJID,C.talk());
-                            reply.setID(C.room_name+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
-                            client->send(reply);
-                        }
-                    }
-                }
-            }
-        }
-        else{
-            cout << "Private MUC Message from " << msg.from().full() << ": " << msg.body() << endl;
-            Message reply(Message::Chat,msg.from(),Channel[0].talk());
-            reply.setID(msg.from().username()+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
-            client->send(reply);
-        }
-    }
-    virtual void onConnect(){
-        cerr << "Connected" << endl;
-        for(ChannelBot &C:Channel){
-            C.room->join();
-        }
-    }
-    virtual void handleMessage(const Message& msg, MessageSession* session=0){
-        cerr << "Received PM from " << msg.from().full() << ": " << msg.body() << endl;
-        if(msg.subtype()==Message::Chat){
-            Message reply(Message::Chat,msg.from().full(),Channel[0].talk());
-            reply.setID(msg.from().username()+"_"+nickname+"_"+to_string(system_clock::now().time_since_epoch().count()));
-            client->send(reply);
-        }
-    }
-    virtual void handleMessageSession(MessageSession* session){
-        cerr << "New message session" << endl;
-        MsgSession.push_back(session);
-        session->registerMessageHandler(this);
-    }
-    virtual void onDisconnect(ConnectionError e) {
-        cerr << "ConnListener::onDisconnect() " << e << endl;
-    }
-    virtual bool onTLSConnect(const CertInfo& info){
-        cerr << "ConnListener::onTLSConnect()" << endl;
-        return true;
-    }
-    virtual void handleLog(LogLevel level, LogArea area, const string &message){
-        cerr << "Log: level: " << level << " area: " << area << ", " << message << endl;
-    }
-    virtual void handleMUCParticipantPresence( MUCRoom * room, const MUCRoomParticipant participant,const Presence& presence ){
-        if( presence.presence() == Presence::Available ){
-            //cerr << participant.nick->resource() << " is in the room too" << endl;
-        }
-        else if( presence.presence() == Presence::Unavailable){
-            //cerr << participant.nick->resource() << " has left the room" << endl;
-        }
-        else{
-            //cerr << "Presence of " << participant.nick->resource() << " is " << presence.presence() << endl;
-        }
-    }
-    virtual void handleMUCSubject( MUCRoom * room, const std::string& nick, const std::string& subject ){
-        if(nick.empty()){
-            cerr << "Subject: " << subject << endl;
-        }
-        else{
-            cerr << nick << " has set the subject to " << subject << endl;
-        }
-    }
-    virtual void handleMUCError( MUCRoom * room, StanzaError error ){
-        cerr << "!Error: " << error << endl;
-    }
-    virtual void handleMUCInfo( MUCRoom * room, int features, const std::string& name,const DataForm* infoForm ){
-        cerr << "features: " << features << " name: " << name << " form xml: " << infoForm->tag()->xml() << endl;
-    }
-    virtual void handleMUCItems(MUCRoom * room,const Disco::ItemList& items){
-        for(Disco::ItemList::const_iterator it=items.begin();it!=items.end();++it){
-            cerr << (*it)->jid().full() << " -- " << (*it)->name() << " is an item here" << endl;
-        }
-    }
-    virtual void handleMUCInviteDecline( MUCRoom * room, const JID& invitee, const std::string& reason ){
-      cerr << "Invitee " << invitee.full() << " declined invitation. Reason given: " << reason << endl;
-    }
-    virtual bool handleMUCRoomCreation( MUCRoom *room ){
-      cerr << "Room " << room->name() << " didn't exist, being created." << endl;
-      return true;
-    }
-};
-
-int main(){
-    Bot b;
 }
