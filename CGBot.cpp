@@ -9,7 +9,8 @@
 #include <chrono>
 #include <sstream>
 #include <regex>
-#include <dirent.h>
+#include <filesystem>
+namespace fs = std::filesystem;
 using namespace std;
 using namespace std::chrono;
 
@@ -70,6 +71,8 @@ struct ChannelBot{
                 return W.first;
             }
         }
+        cerr << "Error: Reached end of Next_SubMessage()" << endl;
+        throw(0);
     }
     inline string Generate_Sentence(const string &start){//Generate sentence with a markov chain model
         string sentence=start;
@@ -167,16 +170,13 @@ struct ChannelBot{
         }
     }
     inline void LearnFromLogs(){
-        DIR *dir;
-        struct dirent *ent;
-        if((dir=opendir("Logs"))!=NULL){
-            while((ent=readdir(dir))!=NULL){
-                string filename{ent->d_name};
+        if(fs::exists("Logs")){
+            for(const fs::directory_entry& entry:fs::directory_iterator("Logs")){
+                const string filename{entry.path().filename()};
                 if(filename.substr(0,filename.find_first_of('@'))==room_name){
                     LearnFromLogFile("./Logs/"+filename);
                 }
             }
-            closedir (dir);
         }
         else{
             cerr << "Could not Logs directory" << endl;

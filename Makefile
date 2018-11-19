@@ -1,2 +1,2 @@
 all:
-	g++ CGBot.cpp -o CGBot -std=c++11 -O3 -march=native
+	g++-8 CGBot.cpp -o CGBot -std=c++17 -O3 -march=native -lstdc++fs
