@@ -120,7 +120,7 @@ struct ChannelBot{
         return Remove_All_Words(mess,nickname);
     }
     inline void Learn_From_Message(string mess){
-        mess.erase(0,mess.find(" : ")+3);//Get rid of "(HH/MM/SS) Username : "
+        mess.erase(0,mess.find(" : ")+3);//Get rid of "Username : "
         mess=Filter_Message(mess);
         size_t delim=mess.find_first_not_of(' ');
         if(delim==string::npos){//Message has no words
@@ -157,7 +157,7 @@ struct ChannelBot{
     inline void LearnFromLogFile(const string &logfilename){
         ifstream logfile(logfilename);
         if(!logfile){
-            cerr << "Couldn't open log file: " << room_name+".log" << endl;
+            cerr << "Couldn't open log file: " << logfilename << endl;
         }
         while(logfile){
             string line,username;
@@ -173,7 +173,7 @@ struct ChannelBot{
         if(fs::exists("Logs")){
             for(const fs::directory_entry& entry:fs::directory_iterator("Logs")){
                 const string filename{entry.path().filename()};
-                if(filename.substr(0,filename.find_first_of('@'))==room_name){
+                if(filename.size()>room_name.size() && equal(room_name.begin(),room_name.end(),filename.begin())){
                     LearnFromLogFile("./Logs/"+filename);
                 }
             }
@@ -181,6 +181,15 @@ struct ChannelBot{
         else{
             cerr << "Could not Logs directory" << endl;
         }
+    }
+    inline void Log(string msg)const{
+        time_t t = time(nullptr);
+        tm ptm = *localtime(&t);
+        stringstream ss;
+        ss << "./Logs/"+room_name+"-" << put_time(&ptm,"%F") << ".log";
+        ofstream log_file(ss.str().c_str(),ios::app);
+        replace(msg.begin(),msg.end(),'\n',' ');
+        log_file << "(" << put_time(&ptm,"%T") << ") " << msg << endl;
     }
 };
 
@@ -201,9 +210,10 @@ int main(int argc,char **argv){
         string username;
         ss >> username >> username;
         getline(cin,message_body_raw);
+        Log(message_body_raw);
         if(Ignored_Talkers.find(username)==Ignored_Talkers.end()){
             b.Learn_From_Message(message_body_raw);
-            if(regex_search(next(find(message_body_raw.begin(),message_body_raw.end(),':'),1),message_body_raw.end(),regex(nickname,regex_constants::icase))){
+            if(regex_search(message_body_raw.begin(),message_body_raw.end(),regex(nickname,regex_constants::icase))){
                 cout << b.talk() << endl;
             }
         }
