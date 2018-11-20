@@ -217,7 +217,7 @@ struct ChannelBot{
         ofstream log_file(ss.str().c_str(),ios::app);
         string message_body{msg.body()};
         replace(message_body.begin(),message_body.end(),'\n',' ');
-        log_file << "(" << put_time(&ptm,"%T") << ") " << msg.from().resource() <<  " : " << msg.body() << endl;
+        log_file << "(" << put_time(&ptm,"%T") << ") " << msg.from().resource() <<  " : " << message_body << endl;
     }
     inline void LearnFromLogFile(const string &logfilename){
         ifstream logfile(logfilename);
