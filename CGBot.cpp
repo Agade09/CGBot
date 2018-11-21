@@ -238,7 +238,7 @@ struct ChannelBot{
     inline void Filter_Markov_Chain(){
     	//Filter out words content which is too rare to be used by the variable length Markov Chain
         //3167708ko->1602424ko
-        for(auto it=words.begin();it!=words.end();){
+    	for(auto it=words.begin();it!=words.end();){
         	if(Words(it->first)>1 && (it->second).total_weights<Occurence_Limit){
         		it=words.erase(it);
         	}
