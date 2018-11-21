@@ -135,7 +135,7 @@ struct ChannelBot{
             while(++N>0){
                 string prev{Last_Words(sentence,N,-1)};
                 //cerr << "Total weights of  " << prev << " : " <<  words[prev].total_weights << endl;
-                if(words[prev].total_weights<Occurence_Limit){
+                if(words[prev].total_weights<Occurence_Limit){//This should never happen given that useless content is removed at learning time now
                     --N;
                     break;
                 }
@@ -235,6 +235,19 @@ struct ChannelBot{
             }
         }
     }
+    inline void Filter_Markov_Chain(){
+    	//Filter out words content which is too rare to be used by the variable length Markov Chain
+        //3167708ko->1602424ko
+        for(auto it=words.begin();it!=words.end();){
+        	if(Words(it->first)>1 && (it->second).total_weights<Occurence_Limit){
+        		it=words.erase(it);
+        	}
+        	else{
+        		++it;
+        	}
+        }
+        words.rehash(0);//1602424ko->1595868ko
+    }
     inline void LearnFromLogs(){
         if(fs::exists("Logs")){
             for(const fs::directory_entry& entry:fs::directory_iterator("Logs")){
@@ -243,6 +256,7 @@ struct ChannelBot{
                     LearnFromLogFile("./Logs/"+filename);
                 }
             }
+            Filter_Markov_Chain();
         }
         else{
             cerr << "Could not Logs directory" << endl;
