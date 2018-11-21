@@ -169,6 +169,19 @@ struct ChannelBot{
             }
         }
     }
+    inline void Filter_Markov_Chain(){
+        //Filter out words content which is too rare to be used by the variable length Markov Chain
+        //3167708ko->1602424ko
+        for(auto it=words.begin();it!=words.end();){
+            if(Words(it->first)>1 && (it->second).total_weights<Occurence_Limit){
+                it=words.erase(it);
+            }
+            else{
+                ++it;
+            }
+        }
+        words.rehash(0);//1602424ko->1595868ko
+    }
     inline void LearnFromLogs(){
         if(fs::exists("Logs")){
             for(const fs::directory_entry& entry:fs::directory_iterator("Logs")){
@@ -177,6 +190,7 @@ struct ChannelBot{
                     LearnFromLogFile("./Logs/"+filename);
                 }
             }
+            Filter_Markov_Chain();
         }
         else{
             cerr << "Could not Logs directory" << endl;
@@ -210,7 +224,7 @@ int main(int argc,char **argv){
         string username;
         ss >> username >> username;
         getline(cin,message_body_raw);
-        Log(message_body_raw);
+        b.Log(message_body_raw);
         if(Ignored_Talkers.find(username)==Ignored_Talkers.end()){
             b.Learn_From_Message(message_body_raw);
             if(regex_search(message_body_raw.begin(),message_body_raw.end(),regex(nickname,regex_constants::icase))){
