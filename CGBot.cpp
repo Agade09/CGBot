@@ -170,15 +170,36 @@ struct ChannelBot{
         }
     }
     inline void Filter_Markov_Chain(){
-        //Filter out words content which is too rare to be used by the variable length Markov Chain
+    	//Filter out words from content which is too rare to be used by the variable length Markov Chain
         //3167708ko->1602424ko
-        for(auto it=words.begin();it!=words.end();){
-            if(Words(it->first)>1 && (it->second).total_weights<Occurence_Limit){
-                it=words.erase(it);
-            }
-            else{
-                ++it;
-            }
+        bool to_clear{true};
+        while(to_clear){
+        	to_clear=false;
+        	for(auto it=words.begin();it!=words.end();){
+	        	if((it->second).total_weights<Occurence_Limit){
+	        		it=words.erase(it);
+	        	}
+	        	else{
+	        		++it;
+	        	}
+	        }
+	        for(auto &w_pair:words){
+	        	next_words &n{w_pair.second};
+	        	for(auto it{n.next.begin()};it!=n.next.end();){
+	        		if(words.find(it->first)==words.end()){//Remove word successors which have been eliminated in the previous pass
+	        			n.total_weights-=it->second;
+	        			if(n.total_weights<Occurence_Limit){
+	        				to_clear=true;
+	        			}
+	        			it=n.next.erase(it);
+	        		}
+	        		else{
+	        			++it;
+	        		}
+	        	}
+	        	//map<string,int> temp(n.next);
+	        	//n.next.swap(temp);
+	        }
         }
         words.rehash(0);//1602424ko->1595868ko
     }
